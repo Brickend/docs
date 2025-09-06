@@ -124,46 +124,185 @@ database:
 
 ### Required Schema Structure
 
-All language implementations MUST support this exact YAML schema:
+All language implementations MUST support this exact multi-file YAML schema structure:
+
+#### `brickend/architecture.yaml` - Base Configuration (REQUIRED)
 
 ```yaml
-# Root configuration - REQUIRED
+# Project definition - REQUIRED
 project:
   name: string              # REQUIRED: Project identifier
   version: string           # OPTIONAL: Semantic version
   description: string       # OPTIONAL: Project description
 
-# Database configuration - REQUIRED
-database:
-  type: enum                # REQUIRED: postgresql|mysql|sqlite
-  host: string              # OPTIONAL: Default localhost  
-  port: integer             # OPTIONAL: Default per DB type
-  name: string              # REQUIRED: Database name
-  
-# Model definitions - REQUIRED
-models:
-  [ModelName]:              # REQUIRED: At least one model
-    fields:
-      [field_name]: string  # REQUIRED: Field definition string
+# Global environment variables - REQUIRED
+environment:
+  variables:                # REQUIRED: Environment configuration
+    [VAR_NAME]: string      # Environment variable references
 
-# API configuration - REQUIRED  
-apis:
-  config:                   # OPTIONAL: Global API settings
-    host: string            # OPTIONAL: Default 127.0.0.1
-    port: integer           # OPTIONAL: Default 8000
-    cors:                   # OPTIONAL: CORS configuration
-      enabled: boolean
-      origins: string[]
-    auth:                   # OPTIONAL: Authentication
-      enabled: boolean
-      type: enum            # jwt|api_key|bearer_token
-      secret_key: string    # REQUIRED if auth.enabled
-      
-  endpoints:                # REQUIRED: At least one endpoint
-    - name: string          # REQUIRED: Endpoint identifier  
-      model: string         # REQUIRED: Reference to model
-      type: enum            # REQUIRED: crud|custom
-      auth_required: boolean # OPTIONAL: Default false
+# Platform services - REQUIRED
+services:
+  database:                 # REQUIRED: Database configuration
+    provider: enum          # REQUIRED: supabase|postgresql|mysql|sqlite
+    config: string          # OPTIONAL: Path to service config file
+  hosting:                  # OPTIONAL: Hosting configuration
+    provider: enum          # vercel|netlify|aws|gcp
+    functions: enum         # edge|nodejs|deno
+  auth:                     # OPTIONAL: Authentication service
+    provider: enum          # supabase-auth|auth0|custom
+    config_file: string     # REQUIRED: Path to security.yaml
+
+# Global libraries - OPTIONAL
+libraries:
+  global: string[]          # Global dependencies
+  runtime: string[]         # Runtime requirements
+
+# API configuration reference - OPTIONAL
+api:
+  config_file: string       # REQUIRED: Path to api.yaml
+
+# Service module definitions - REQUIRED
+service_modules:            # REQUIRED: At least one service
+  - name: string            # REQUIRED: Service identifier
+    description: string     # OPTIONAL: Service description
+    file: string            # REQUIRED: Path to service YAML file
+    libraries: string[]     # OPTIONAL: Service-specific dependencies
+```
+
+#### `brickend/security.yaml` - Security Configuration (OPTIONAL)
+
+```yaml
+# Authentication providers - OPTIONAL
+authentication:
+  providers:
+    - name: string          # REQUIRED: Provider identifier
+      type: enum            # REQUIRED: jwt|api_key|oauth|custom
+      settings:             # REQUIRED: Provider-specific settings
+        [setting]: any
+
+# Authorization and permissions - OPTIONAL
+authorization:
+  roles:                    # OPTIONAL: Role definitions
+    - name: string          # REQUIRED: Role name
+      description: string   # OPTIONAL: Role description
+      permissions: string[] # REQUIRED: Permission list
+
+# Row Level Security policies - OPTIONAL
+rls_policies:
+  [table_name]:             # Table-specific policies
+    - name: string          # REQUIRED: Policy name
+      policy: string        # REQUIRED: Policy expression
+      operations: string[]  # REQUIRED: Operations covered
+
+# Access restrictions - OPTIONAL
+restrictions:
+  rate_limiting:            # OPTIONAL: Rate limiting configuration
+    default: integer        # Default rate limit
+    by_role:                # Role-specific limits
+      [role]: integer
+  ip_whitelist:             # OPTIONAL: IP restrictions
+    enabled: boolean
+    allowed_ips: string[]
+  cors:                     # OPTIONAL: CORS configuration
+    enabled: boolean
+    origins: string[]
+    methods: string[]
+    headers: string[]
+```
+
+#### `brickend/api.yaml` - API Configuration (OPTIONAL)
+
+```yaml
+# Global API settings - OPTIONAL
+global:
+  version: string           # API version
+  base_path: string         # Base URL path
+  default_response_format: enum # json|xml|yaml
+
+# Shared pagination - OPTIONAL
+pagination:
+  default_page_size: integer
+  max_page_size: integer
+  page_param: string
+  limit_param: string
+  include_metadata: boolean
+  metadata_fields: string[]
+
+# Standard headers - OPTIONAL
+headers:
+  request:                  # Request headers configuration
+    required: array         # Required headers
+    optional: array         # Optional headers
+  response:                 # Response headers configuration
+    standard: array         # Standard response headers
+
+# Error handling - OPTIONAL
+error_handling:
+  include_stack_trace: boolean
+  error_codes:              # Standard error code mapping
+    [error_type]: string
+
+# Validation settings - OPTIONAL
+validation:
+  strict_mode: boolean
+  strip_unknown_fields: boolean
+  coerce_types: boolean
+
+# Caching configuration - OPTIONAL
+caching:
+  default_ttl: integer
+  vary_by: string[]
+  cache_control:
+    [endpoint_type]: string
+
+# Monitoring configuration - OPTIONAL
+monitoring:
+  request_logging: boolean
+  response_logging: boolean
+  metrics: string[]
+  tracing:
+    enabled: boolean
+    sample_rate: float
+```
+
+#### `brickend/[service-name].yaml` - Service Configuration (REQUIRED)
+
+```yaml
+# Service definition - REQUIRED
+service:
+  name: string              # REQUIRED: Service identifier
+  description: string       # OPTIONAL: Service description
+
+# Configuration inheritance - OPTIONAL
+extends:
+  security: string          # OPTIONAL: Path to security.yaml
+  api: string              # OPTIONAL: Path to api.yaml
+
+# Data models - OPTIONAL
+tables:
+  - name: string            # REQUIRED: Table name
+    description: string     # OPTIONAL: Table description
+    fields:                 # REQUIRED: Field definitions
+      - name: string        # REQUIRED: Field name
+        type: string        # REQUIRED: Field type and constraints
+        description: string # OPTIONAL: Field description
+
+# API endpoints - OPTIONAL
+methods:
+  - name: string            # REQUIRED: Method name
+    description: string     # OPTIONAL: Method description
+    type: enum              # REQUIRED: get|post|put|delete|patch
+    path_params: array      # OPTIONAL: URL path parameters
+    query_params: array     # OPTIONAL: Query string parameters
+    input: array            # OPTIONAL: Request body schema
+    output: array           # OPTIONAL: Response body schema
+    headers: array          # OPTIONAL: Method-specific headers
+
+# Modules and contracts - OPTIONAL
+modules:
+  contracts: boolean        # Generate type contracts
+  rls: boolean             # Enable row-level security
+  validation: boolean      # Enable input validation
 ```
 
 ### Field Definition Language
@@ -188,19 +327,32 @@ fields:
 
 ### Validation Rules
 
-**Model Validation**:
-- Every model MUST have exactly one primary_key field
-- Field names MUST be valid identifiers in all target languages
-- Model names MUST be PascalCase and valid in all target languages
+**Architecture Validation**:
+- `architecture.yaml` MUST exist as the base configuration file
+- All referenced service files in `service_modules` MUST exist
+- If `api.config_file` is specified, the referenced file MUST exist
+- If `services.auth.config_file` is specified, the referenced file MUST exist
 
-**Endpoint Validation**:
-- Referenced models MUST exist in the models section
-- Endpoint names MUST be unique within the configuration
-- CRUD endpoints automatically provide: GET, POST, PUT, DELETE operations
+**Service File Validation**:
+- Every service MUST have exactly one primary_key field per table
+- Field names MUST be valid identifiers in all target languages
+- Service names MUST be valid in all target languages
+- Referenced files in `extends` section MUST exist
+
+**Cross-File Validation**:
+- Service names in `architecture.yaml` MUST match service names in individual service files
+- If `security.yaml` exists, referenced roles in service files MUST be defined
+- If `api.yaml` exists, endpoint configurations MUST be compatible
+
+**Security Validation**:
+- If authentication is enabled, at least one provider MUST be configured
+- RLS policies MUST reference existing tables
+- Permission strings MUST follow the pattern: `resource:action:scope`
 
 **Database Validation**:
-- If auth.enabled=true, secret_key MUST be provided
-- Database type MUST be supported by the target language implementation
+- Database provider MUST be supported by the target language implementation
+- Table names MUST be unique across all service files
+- Foreign key references MUST point to existing tables and fields
 
 ---
 
@@ -276,7 +428,11 @@ Each language implementation MUST generate this logical structure:
 
 ```
 generated-project/
-├── brickend.yaml           # Source configuration (preserved)
+├── brickend/               # Source configuration (preserved)
+│   ├── architecture.yaml   # Base configuration
+│   ├── security.yaml       # Authentication and authorization (optional)
+│   ├── api.yaml            # API configuration (optional)
+│   └── [service].yaml      # Service definitions (one or more)
 ├── [entry-point]           # Language-specific entry point
 ├── [dependency-file]       # Language-specific dependencies  
 ├── database/               # Database configuration
@@ -286,32 +442,42 @@ generated-project/
 │   ├── [model].[ext]       # One file per model
 │   └── [relationships].[ext] # Model relationships
 ├── schemas/                # Validation schemas  
-│   ├── [model].[ext]       # Input/output validation
+│   ├── [service].[ext]     # Service-specific validation
 │   └── [common].[ext]      # Shared validation logic
 ├── routes/                 # HTTP routes
-│   ├── [endpoint].[ext]    # One file per endpoint group
+│   ├── [service].[ext]     # One file per service
 │   └── [auth].[ext]        # Authentication routes
 ├── middleware/             # HTTP middleware
 │   ├── [auth].[ext]        # Authentication middleware
 │   ├── [cors].[ext]        # CORS middleware
+│   ├── [security].[ext]    # Security middleware
 │   └── [validation].[ext]  # Request validation
 └── utils/                  # Utility functions
     ├── [responses].[ext]   # Standard response helpers
-    └── [errors].[ext]      # Error handling
+    ├── [errors].[ext]      # Error handling
+    └── [config].[ext]      # Configuration loaders
 ```
 
 ### Generation Contract
 
+**Configuration Files** (user-owned, never overwritten):
+- `brickend/architecture.yaml` - Base configuration
+- `brickend/security.yaml` - Security and authentication settings
+- `brickend/api.yaml` - API configuration and standards
+- `brickend/[service].yaml` - Service definitions and tables
+
 **Framework Files** (regenerated every time):
 - Entry point and server configuration
 - Route definitions and middleware setup  
-- Base model and schema definitions
+- Base model and schema definitions from all service files
 - Database connection and migration files
-- Standard utility functions
+- Standard utility functions and configuration loaders
+- Security middleware from security.yaml
+- API middleware from api.yaml
 
 **Business Logic Files** (generated once, user-modifiable):
-- Route handler implementations
-- Custom validation logic
+- Service-specific route handler implementations
+- Custom validation logic per service
 - Business-specific utility functions
 - Custom middleware implementations
 
@@ -413,18 +579,21 @@ Every language implementation MUST provide these exact commands:
 
 ```bash
 # Project initialization
-brickend init [project-name]    # Create new project with brickend/ folder and default brickend.yaml
+brickend init [project-name]    # Create new project with brickend/ folder and default architecture.yaml
 brickend init --template [name] # Create from template
 
 # Code generation  
-brickend generate               # Generate code from brickend/brickend.yaml
+brickend generate               # Generate code from brickend/architecture.yaml and all service files
 brickend generate --dry-run     # Show what would be generated
 brickend generate --force       # Overwrite existing business logic files
+brickend generate --service [name] # Generate specific service only
 brickend generate --env [name]  # Use environment-specific configuration
 
 # Validation
-brickend validate               # Validate brickend/brickend.yaml syntax and semantics
-brickend validate --env [name]  # Validate environment-specific configuration
+brickend validate               # Validate brickend/architecture.yaml and all referenced files
+brickend validate --service [name] # Validate specific service file
+brickend validate --security    # Validate security.yaml configuration
+brickend validate --api         # Validate api.yaml configuration
 brickend validate --verbose     # Show detailed validation results
 
 # Utilities

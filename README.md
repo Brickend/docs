@@ -17,8 +17,10 @@ Think of Brickend as your **backend blueprint**: you describe your system once i
   - `brickend upgrade` → upgrade framework code while preserving your business logic.  
 
 - **YAML-first configuration**  
-  - `brickend.yaml` → global project architecture, env variables, and list of services.  
-  - `service.yaml` → per-service configuration (tables, methods, relations).  
+  - `brickend/architecture.yaml` → global project architecture, services, environment variables.  
+  - `brickend/security.yaml` → authentication, permissions, access levels, restrictions.  
+  - `brickend/api.yaml` → shared endpoint configurations, pagination, headers.  
+  - `brickend/[service].yaml` → per-service configuration (tables, methods, relations, contracts).  
 
 - **Supabase integration**  
   - Database schema & migrations.  
@@ -65,15 +67,15 @@ bun install -g brickend
 
 # 1. Initialize a new project (creates Supabase + Brickend structure)
 brickend init my-project
-# → Creates project structure + _shared/ framework utilities + supabase config
+# → Creates brickend/ folder + architecture.yaml + supabase config + framework utilities
 
 # 2. Generate services from YAML definitions  
 brickend generate
-# → Creates service routers + method files + contracts + migrations
+# → Reads brickend/architecture.yaml + service files → generates routers + contracts + migrations
 
 # 3. Deploy to Supabase
 brickend deploy
-# → Deploys functions, runs migrations, applies settings
+# → Deploys functions, runs migrations, applies settings from brickend/ folder
 
 # 4. Upgrade to latest Brickend version
 brickend upgrade
@@ -86,11 +88,13 @@ brickend upgrade
 ```bash
 my-project/
 │
-├─ brickend.yaml         # global project definition
+├─ brickend/             # Brickend configuration folder
+│   ├─ architecture.yaml # Base configuration - project setup, services, global libraries
+│   ├─ security.yaml     # Authentication, permissions, access levels, restrictions
+│   ├─ api.yaml          # Shared endpoint configs, pagination, limits, headers
+│   ├─ users.yaml        # Users service - tables, endpoints, modules, contracts, RLS
+│   └─ invoices.yaml     # Invoices service - tables, endpoints, modules, contracts, RLS
 │
-├─ services/
-│   ├─ users.yaml        # users service definition (tables, methods, relations)
-│   └─ invoices.yaml     # invoices service definition (tables, methods, relations)
 ├─ .env                  # environment variables (not committed)
 ├─ .env.example          # environment template
 ├─ .gitignore            # git ignore rules
@@ -138,20 +142,63 @@ my-project/
 
 ---
 
-## 📝 Example: `brickend.yaml`
+## 📝 Example: `brickend/architecture.yaml`
 
 ```yaml
 project:
   name: my-saas
-  env:
+  description: "A complete SaaS backend with user management and billing"
+  version: "1.0.0"
+  
+# Global environment variables and configurations
+environment:
+  variables:
     SUPABASE_URL: ${SUPABASE_URL}
     SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+    STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
 
+# Platform services configuration
 services:
+  database:
+    provider: supabase
+    config: ./supabase/config.toml
+  
+  hosting:
+    provider: vercel
+    functions: edge
+    
+  auth:
+    provider: supabase-auth
+    config_file: ./brickend/security.yaml
+
+# Global libraries and dependencies
+libraries:
+  global:
+    - "@supabase/supabase-js"
+    - "zod"
+    - "stripe"
+  runtime:
+    - "deno"
+
+# API configuration reference
+api:
+  config_file: ./brickend/api.yaml
+
+# Service definitions - each references its own YAML file
+service_modules:
   - name: users
-    path: ./services/users.yaml
+    description: "User authentication, profiles, and account management"
+    file: ./brickend/users.yaml
+    libraries:
+      - "bcrypt"
+      - "jsonwebtoken"
+      
   - name: invoices
-    path: ./services/invoices.yaml
+    description: "Invoice creation, management, and payment tracking"
+    file: ./brickend/invoices.yaml
+    libraries:
+      - "stripe"
+      - "pdf-lib"
 ```
 
 ## 📝 Example: `supabase/config.toml`
@@ -195,71 +242,259 @@ ip_version = "ipv4"
 
 ---
 
-## 📝 Example: `services/invoices.yaml`
+## 📝 Example: `brickend/security.yaml`
 
 ```yaml
+# Authentication configuration
+authentication:
+  providers:
+    - name: supabase-auth
+      type: jwt
+      settings:
+        jwt_secret: ${SUPABASE_JWT_SECRET}
+        expiry: 3600
+        refresh_enabled: true
+    
+    - name: api-key
+      type: api_key
+      settings:
+        header_name: "x-api-key"
+        key_prefix: "bk_"
+
+# User roles and permissions
+authorization:
+  roles:
+    - name: admin
+      description: "Full system access"
+      permissions: ["*"]
+      
+    - name: user
+      description: "Standard user access"
+      permissions:
+        - "users:read:own"
+        - "users:update:own"
+        - "invoices:*:own"
+        
+    - name: readonly
+      description: "Read-only access"
+      permissions:
+        - "users:read:own"
+        - "invoices:read:own"
+
+# Row Level Security policies
+rls_policies:
+  users:
+    - name: "users_own_data"
+      policy: "auth.uid() = id"
+      operations: ["select", "update"]
+      
+  invoices:
+    - name: "invoices_customer_access" 
+      policy: "auth.uid() = customer_id"
+      operations: ["select", "insert", "update", "delete"]
+
+# Access restrictions
+restrictions:
+  rate_limiting:
+    default: 1000  # requests per hour
+    by_role:
+      admin: 10000
+      user: 1000
+      readonly: 500
+      
+  ip_whitelist:
+    enabled: false
+    allowed_ips: []
+    
+  cors:
+    enabled: true
+    origins: ["http://localhost:3000", "https://myapp.vercel.app"]
+    methods: ["GET", "POST", "PUT", "DELETE"]
+    headers: ["Content-Type", "Authorization"]
+```
+
+## 📝 Example: `brickend/api.yaml`
+
+```yaml
+# Global API configuration
+global:
+  version: "v1"
+  base_path: "/api"
+  default_response_format: "json"
+  
+# Shared pagination settings
+pagination:
+  default_page_size: 10
+  max_page_size: 100
+  page_param: "page"
+  limit_param: "limit"
+  include_metadata: true
+  metadata_fields:
+    - "total_count"
+    - "page_count" 
+    - "has_next"
+    - "has_previous"
+
+# Standard headers for all endpoints
+headers:
+  request:
+    required:
+      - name: "content-type"
+        description: "Request content type"
+        default: "application/json"
+    optional:
+      - name: "x-request-id"
+        description: "Request tracking ID"
+      - name: "x-client-version"
+        description: "Client application version"
+        
+  response:
+    standard:
+      - name: "x-response-time"
+        description: "Server processing time in ms"
+      - name: "x-rate-limit-remaining"
+        description: "Remaining requests in current window"
+
+# Error handling configuration
+error_handling:
+  include_stack_trace: false  # Only in development
+  error_codes:
+    validation: "VALIDATION_ERROR"
+    authentication: "AUTH_ERROR"
+    authorization: "PERMISSION_ERROR"
+    not_found: "NOT_FOUND"
+    conflict: "CONFLICT"
+    rate_limit: "RATE_LIMIT_EXCEEDED"
+    
+# Request/Response validation
+validation:
+  strict_mode: true
+  strip_unknown_fields: true
+  coerce_types: true
+  
+# Caching configuration
+caching:
+  default_ttl: 300  # 5 minutes
+  vary_by:
+    - "authorization"
+    - "user-agent"
+  cache_control:
+    public_endpoints: "public, max-age=300"
+    private_endpoints: "private, no-cache"
+
+# Monitoring and observability
+monitoring:
+  request_logging: true
+  response_logging: false  # Only errors
+  metrics:
+    - "request_count"
+    - "response_time"
+    - "error_rate"
+  tracing:
+    enabled: true
+    sample_rate: 0.1  # 10% of requests
+```
+
+---
+
+## 📝 Example: `brickend/invoices.yaml`
+
+```yaml
+# Service configuration - extends settings from architecture.yaml
 service:
   name: invoices
-  auth:
-    required: true
-    mode: user   # user | service
-  pagination: true
-  rateLimit: 1000
-  cors: "*"
+  description: "Invoice management system with CRUD operations and payment tracking"
+  
+# References to shared configurations
+extends:
+  security: ../security.yaml  # Inherits auth, permissions, RLS
+  api: ../api.yaml           # Inherits pagination, headers, error handling
 
 tables:
   - name: invoices
+    description: "Core invoice table storing billing information and payment status"
     fields:
       - name: id
         type: uuid
         primary: true
+        description: "Unique identifier for each invoice"
       - name: customer_id
         type: uuid
         references: users.id
+        description: "Reference to the customer who owns this invoice"
       - name: total
         type: int
+        description: "Total amount in cents (e.g., 1500 = $15.00)"
       - name: created_at
         type: timestamp default now()
+        description: "When the invoice was first created"
 
 methods:
   - name: createInvoice
+    description: "Create a new invoice for a customer"
     type: post
     input:
       - customer_id: uuid
+        description: "ID of the customer receiving the invoice"
       - total: int
+        description: "Invoice total amount in cents"
     output:
       - id: uuid
+        description: "Newly created invoice ID"
       - total: int
+        description: "Confirmed total amount"
       - created_at: timestamp
+        description: "Creation timestamp"
     headers:
       - authorization: string required
+        description: "Bearer token for user authentication"
       - x-request-id: string optional
+        description: "Optional request ID for tracing"
   
   - name: getInvoice
+    description: "Retrieve a specific invoice by ID"
     type: get
     path_params:
       - id: uuid
+        description: "Invoice ID to retrieve"
     output:
       - id: uuid
+        description: "Invoice unique identifier"
       - customer_id: uuid
+        description: "Customer who owns this invoice"
       - total: int
+        description: "Invoice total in cents"
+      - status: string
+        description: "Current payment status"
       - created_at: timestamp
+        description: "When invoice was created"
     headers:
       - authorization: string required
+        description: "Bearer token for user authentication"
   
   - name: listInvoices
+    description: "List invoices with filtering, pagination, and sorting"
     type: get
     query_params:
       - page: int optional default(1)
+        description: "Page number for pagination (starts at 1)"
       - limit: int optional default(10)
+        description: "Number of invoices per page (max 100)"
       - status: string optional enum(draft,sent,paid,overdue)
+        description: "Filter by invoice payment status"
       - customer_id: uuid optional
+        description: "Filter by specific customer"
       - date_from: date optional
+        description: "Show invoices created after this date"
       - date_to: date optional
+        description: "Show invoices created before this date"
       - sort_by: string optional enum(created_at,total,due_date) default(created_at)
+        description: "Field to sort results by"
       - order: string optional enum(asc,desc) default(desc)
+        description: "Sort direction: ascending or descending"
     output:
       - data: array[invoice]
+        description: "Array of invoice objects matching filters"
       - pagination:
           page: int
           limit: int
@@ -267,45 +502,66 @@ methods:
           pages: int
           has_next: boolean
           has_prev: boolean
+        description: "Pagination metadata for navigation"
     headers:
       - authorization: string required
+        description: "Bearer token for user authentication"
   
   - name: updateInvoice
+    description: "Update an existing invoice's details"
     type: put
     path_params:
       - id: uuid
+        description: "ID of invoice to update"
     input:
       - total: int
+        description: "New total amount in cents"
       - status: string optional
+        description: "Update payment status if needed"
     output:
       - id: uuid
+        description: "Updated invoice ID"
       - total: int
+        description: "New total amount"
       - status: string
+        description: "Current status after update"
       - updated_at: timestamp
+        description: "When the update occurred"
     headers:
       - authorization: string required
+        description: "Bearer token for user authentication"
   
   - name: deleteInvoice
+    description: "Permanently delete an invoice (use with caution)"
     type: delete
     path_params:
       - id: uuid
+        description: "ID of invoice to delete"
     output:
       - success: boolean
+        description: "Whether deletion was successful"
     headers:
       - authorization: string required
+        description: "Bearer token for user authentication"
 
 # Custom method names supported
   - name: sendInvoiceReminder
+    description: "Send a payment reminder to the customer via email/SMS"
     type: post
     path_params:
       - id: uuid
+        description: "Invoice ID to send reminder for"
     input:
       - message: string optional
+        description: "Custom reminder message (uses default if not provided)"
     output:
       - sent: boolean
+        description: "Whether reminder was sent successfully"
       - sent_at: timestamp
+        description: "When the reminder was sent"
     headers:
       - authorization: string required
+        description: "Bearer token for user authentication"
 ```
 
 ---
@@ -534,7 +790,7 @@ supabase/functions/
 **Regeneration Strategy:**
 - **Framework files** (`_shared/`, `index.ts`, contracts) - Regenerated to add features
 - **Method files** - Generated once, never touched again by Brickend
-- **Missing methods** - Only new method files are created for new methods in service.yaml
+- **Missing methods** - Only new method files are created for new methods in service YAML files
 - **Contract changes** - Warning generated to check existing methods manually
 
 **Warning System Example:**
@@ -543,18 +799,18 @@ $ brickend generate
 
 ⚠️  Contract Changes Detected:
    
-   invoices/createInvoice:
+   brickend/invoices.yaml → invoices/createInvoice:
    - Input field 'total' type changed: int → float
    - New required field 'currency' added
    
-   invoices/listInvoices:  
+   brickend/invoices.yaml → invoices/listInvoices:  
    - Query param 'status' enum values changed
    
 📝 Please review and update these method files manually:
    - supabase/functions/invoices/create.ts
    - supabase/functions/invoices/list.ts
    
-✅ Generated:
+✅ Generated from brickend/architecture.yaml + service files:
    - supabase/functions/invoices/index.ts (updated router)
    - supabase/functions/invoices/send-invoice-reminder.ts (new method)
    - contracts/invoices/schemas.ts (updated contracts)
@@ -619,10 +875,10 @@ export default async function handler(req: Request) {
       Deno.env.get('SUPABASE_SERVICE_KEY') ?? ''
     );
 
-    // Validate auth ONCE (configurable from service.yaml)
+    // Validate auth ONCE (configurable from security.yaml)
     const user = await validateAuth(req, { required: true, mode: 'user' });
 
-    // Apply rate limiting (configurable from service.yaml)
+    // Apply rate limiting (configurable from security.yaml)
     await applyRateLimit(req, { limit: 1000, window: '1h' });
     
     const url = new URL(req.url);
@@ -1022,7 +1278,7 @@ This **single source of truth** ensures:
 - **Runtime validation** with Zod schemas
 - **Compile-time type safety** with TypeScript interfaces  
 - **Consistent contracts** across backend and frontend
-- **Automatic generation** from your service.yaml definitions
+- **Automatic generation** from your service YAML definitions
 
 ### **Client Usage Examples**
 
