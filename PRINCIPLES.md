@@ -154,43 +154,140 @@ project-root/
 **Single File** (`brickend/brickend.yaml`):
 
 ```yaml
-# Project definition - REQUIRED
+# Complete standalone configuration - everything in one file
 project:
-  name: string              # REQUIRED: Project identifier
-  version: string           # OPTIONAL: Semantic version
-  description: string       # OPTIONAL: Project description
+  name: "simple-api"              # REQUIRED: Project identifier
+  version: "1.0.0"                # OPTIONAL: Semantic version
+  description: "A simple API"     # OPTIONAL: Project description
 
 # Database configuration - REQUIRED
 database:
-  type: enum                # REQUIRED: postgresql|mysql|sqlite
-  host: string              # OPTIONAL: Default localhost  
-  port: integer             # OPTIONAL: Default per DB type
-  name: string              # REQUIRED: Database name
-  
-# Model definitions - REQUIRED
-models:
-  [ModelName]:              # REQUIRED: At least one model
-    fields:
-      [field_name]: string  # REQUIRED: Field definition string
+  type: postgresql                # REQUIRED: postgresql|mysql|sqlite|supabase
+  host: localhost                 # OPTIONAL: Default localhost  
+  port: 5432                      # OPTIONAL: Default per DB type
+  name: simple_api_db             # REQUIRED: Database name
 
-# API configuration - REQUIRED  
-apis:
-  config:                   # OPTIONAL: Global API settings
-    host: string            # OPTIONAL: Default 127.0.0.1
-    port: integer           # OPTIONAL: Default 8000
-    cors:                   # OPTIONAL: CORS configuration
-      enabled: boolean
-      origins: string[]
-    auth:                   # OPTIONAL: Authentication
-      enabled: boolean
-      type: enum            # jwt|api_key|bearer_token
-      secret_key: string    # REQUIRED if auth.enabled
-      
-  endpoints:                # REQUIRED: At least one endpoint
-    - name: string          # REQUIRED: Endpoint identifier  
-      model: string         # REQUIRED: Reference to model
-      type: enum            # REQUIRED: crud|custom
-      auth_required: boolean # OPTIONAL: Default false
+# Authentication - OPTIONAL (inline)
+auth:
+  enabled: true                   # OPTIONAL: Enable authentication
+  type: jwt                       # OPTIONAL: jwt|api_key|bearer_token
+  secret_key: "${JWT_SECRET}"     # REQUIRED if auth.enabled
+
+# API configuration - OPTIONAL (inline)
+api:
+  host: "0.0.0.0"                # OPTIONAL: Default 127.0.0.1
+  port: 8000                      # OPTIONAL: Default 8000
+  cors:                           # OPTIONAL: CORS configuration
+    enabled: true
+    origins: ["*"]
+
+# Models - REQUIRED (inline)
+models:
+  User:
+    fields:
+      id: "uuid, primary_key"
+      email: "string, unique, required"
+      name: "string, required"
+      created_at: "timestamp, auto_add"
+
+# Endpoints - REQUIRED (inline)
+endpoints:
+  - name: "users"                 # REQUIRED: Endpoint identifier  
+    model: "User"                 # REQUIRED: Reference to model
+    type: "crud"                  # REQUIRED: crud|custom
+    auth_required: true           # OPTIONAL: Default false
+```
+
+#### Option 2: Modular Configuration (Complex Projects)
+
+**Main File** (`brickend/brickend.yaml`):
+```yaml
+# Project definition - REQUIRED
+project:
+  name: "complex-api"
+  version: "2.0.0"
+  description: "Enterprise API with modular configuration"
+
+# Database configuration - REQUIRED
+database:
+  type: postgresql
+  name: complex_api_db
+
+# Import configurations - OPTIONAL
+imports:
+  security: "security.yaml"      # Import auth & permissions
+  api: "api.yaml"               # Import API standards
+  
+# Service modules - OPTIONAL
+services:
+  - name: "users"
+    file: "services/users.yaml"
+  - name: "organizations"  
+    file: "services/organizations.yaml"
+```
+
+**Security Configuration** (`brickend/security.yaml`):
+```yaml
+# Authentication providers
+auth:
+  enabled: true
+  type: jwt
+  secret_key: "${JWT_SECRET}"
+  
+# Role-based permissions
+roles:
+  - name: "admin"
+    permissions: ["users:*", "organizations:*"]
+  - name: "user"
+    permissions: ["users:read:own", "organizations:read"]
+```
+
+**API Standards** (`brickend/api.yaml`):
+```yaml
+# Global API configuration
+global:
+  version: "v1"
+  base_path: "/api"
+  
+# Pagination defaults
+pagination:
+  default_page_size: 20
+  max_page_size: 100
+  
+# Response standards
+responses:
+  include_metadata: true
+  error_format: "detailed"
+```
+
+**Service Configuration** (`brickend/services/users.yaml`):
+```yaml
+# Service definition
+service:
+  name: "users"
+  description: "User management service"
+
+# Data models
+models:
+  User:
+    fields:
+      id: "uuid, primary_key"
+      email: "string, unique, required"
+      name: "string, required"
+      role: "string, enum=admin|user"
+      created_at: "timestamp, auto_add"
+
+# API endpoints
+endpoints:
+  - name: "users"
+    model: "User"
+    type: "crud"
+    auth_required: true
+  - name: "profile"
+    type: "custom"
+    method: "GET"
+    path: "/me"
+    auth_required: true
 ```
 
 ### Field Definition Language
@@ -215,32 +312,28 @@ fields:
 
 ### Validation Rules
 
-**Architecture Validation**:
-- `architecture.yaml` MUST exist as the base configuration file
-- All referenced service files in `service_modules` MUST exist
-- If `api.config_file` is specified, the referenced file MUST exist
-- If `services.auth.config_file` is specified, the referenced file MUST exist
+**Configuration Discovery**:
+- `brickend/brickend.yaml` MUST always exist (entry point)
+- If `imports` section exists, referenced files MUST exist
+- If `services` section exists, referenced service files MUST exist
+- Environment files in `brickend/environments/` are auto-discovered if present
 
-**Service File Validation**:
-- Every service MUST have exactly one primary_key field per table
+**Standalone Validation** (single file):
+- All required sections MUST be present in `brickend.yaml`
+- Field definitions MUST follow the universal syntax
+- Model and endpoint references MUST be valid within the file
+
+**Modular Validation** (multiple files):
+- Base configuration in `brickend.yaml` MUST be valid
+- Each imported file MUST be valid independently
+- Cross-file references MUST resolve correctly
+- Service names MUST be unique across all service files
+
+**Universal Validation Rules**:
+- Every model MUST have exactly one primary_key field
 - Field names MUST be valid identifiers in all target languages
-- Service names MUST be valid in all target languages
-- Referenced files in `extends` section MUST exist
-
-**Cross-File Validation**:
-- Service names in `architecture.yaml` MUST match service names in individual service files
-- If `security.yaml` exists, referenced roles in service files MUST be defined
-- If `api.yaml` exists, endpoint configurations MUST be compatible
-
-**Security Validation**:
-- If authentication is enabled, at least one provider MUST be configured
-- RLS policies MUST reference existing tables
-- Permission strings MUST follow the pattern: `resource:action:scope`
-
-**Database Validation**:
-- Database provider MUST be supported by the target language implementation
-- Table names MUST be unique across all service files
-- Foreign key references MUST point to existing tables and fields
+- Model and service names MUST be PascalCase and language-compatible
+- Database provider MUST be supported by target language implementation
 
 ---
 
@@ -316,11 +409,12 @@ Each language implementation MUST generate this logical structure:
 
 ```
 generated-project/
-├── brickend/               # Source configuration (preserved)
-│   ├── architecture.yaml   # Base configuration
-│   ├── security.yaml       # Authentication and authorization (optional)
-│   ├── api.yaml            # API configuration (optional)
-│   └── [service].yaml      # Service definitions (one or more)
+├── brickend/               # Configuration directory (preserved)
+│   ├── brickend.yaml       # Main configuration (always present)
+│   ├── security.yaml       # Security config (optional)
+│   ├── api.yaml            # API config (optional)
+│   ├── environments/       # Environment configs (optional)
+│   └── services/           # Service configs (optional)
 ├── [entry-point]           # Language-specific entry point
 ├── [dependency-file]       # Language-specific dependencies  
 ├── database/               # Database configuration
@@ -330,15 +424,14 @@ generated-project/
 │   ├── [model].[ext]       # One file per model
 │   └── [relationships].[ext] # Model relationships
 ├── schemas/                # Validation schemas  
-│   ├── [service].[ext]     # Service-specific validation
+│   ├── [model].[ext]       # Model validation
 │   └── [common].[ext]      # Shared validation logic
 ├── routes/                 # HTTP routes
-│   ├── [service].[ext]     # One file per service
-│   └── [auth].[ext]        # Authentication routes
+│   ├── [endpoint].[ext]    # Route definitions
+│   └── [auth].[ext]        # Authentication routes (if enabled)
 ├── middleware/             # HTTP middleware
-│   ├── [auth].[ext]        # Authentication middleware
-│   ├── [cors].[ext]        # CORS middleware
-│   ├── [security].[ext]    # Security middleware
+│   ├── [auth].[ext]        # Authentication middleware (if enabled)
+│   ├── [cors].[ext]        # CORS middleware (if enabled)
 │   └── [validation].[ext]  # Request validation
 └── utils/                  # Utility functions
     ├── [responses].[ext]   # Standard response helpers
@@ -349,23 +442,24 @@ generated-project/
 ### Generation Contract
 
 **Configuration Files** (user-owned, never overwritten):
-- `brickend/architecture.yaml` - Base configuration
-- `brickend/security.yaml` - Security and authentication settings
-- `brickend/api.yaml` - API configuration and standards
-- `brickend/[service].yaml` - Service definitions and tables
+- `brickend/brickend.yaml` - Main configuration (always required)
+- `brickend/security.yaml` - Security and authentication settings (optional)
+- `brickend/api.yaml` - API configuration and standards (optional)
+- `brickend/services/[service].yaml` - Service definitions (optional)
+- `brickend/environments/[env].yaml` - Environment configs (optional)
 
 **Framework Files** (regenerated every time):
 - Entry point and server configuration
 - Route definitions and middleware setup  
-- Base model and schema definitions from all service files
+- Base model and schema definitions from all configuration files
 - Database connection and migration files
 - Standard utility functions and configuration loaders
-- Security middleware from security.yaml
-- API middleware from api.yaml
+- Security middleware (if security.yaml exists)
+- API middleware (if api.yaml exists)
 
 **Business Logic Files** (generated once, user-modifiable):
-- Service-specific route handler implementations
-- Custom validation logic per service
+- Route handler implementations
+- Custom validation logic
 - Business-specific utility functions
 - Custom middleware implementations
 
@@ -467,21 +561,19 @@ Every language implementation MUST provide these exact commands:
 
 ```bash
 # Project initialization
-brickend init [project-name]    # Create new project with brickend/ folder and default architecture.yaml
-brickend init --template [name] # Create from template
+brickend init [project-name]    # Create new project with brickend/ folder and default brickend.yaml
+brickend init --template [name] # Create from template (simple, modular, enterprise)
 
 # Code generation  
-brickend generate               # Generate code from brickend/architecture.yaml and all service files
+brickend generate               # Generate code from brickend/brickend.yaml and any imported files
 brickend generate --dry-run     # Show what would be generated
 brickend generate --force       # Overwrite existing business logic files
-brickend generate --service [name] # Generate specific service only
+brickend generate --service [name] # Generate specific service only (if modular structure)
 brickend generate --env [name]  # Use environment-specific configuration
 
 # Validation
-brickend validate               # Validate brickend/architecture.yaml and all referenced files
-brickend validate --service [name] # Validate specific service file
-brickend validate --security    # Validate security.yaml configuration
-brickend validate --api         # Validate api.yaml configuration
+brickend validate               # Validate brickend/brickend.yaml and all referenced files
+brickend validate --service [name] # Validate specific service file (if exists)
 brickend validate --verbose     # Show detailed validation results
 
 # Modularization helpers (optional)
