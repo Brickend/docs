@@ -58,11 +58,10 @@ models:
       id: "uuid, primary_key"
       email: "string, unique, required"
 
-apis:
-  endpoints:
-    - name: "users"
-      model: "User"
-      type: "crud"
+endpoints:
+  - name: "users"
+    model: "User"
+    type: "crud"
 ```
 
 **Validation**: All implementations must pass identical integration test suites.
@@ -122,11 +121,37 @@ database:
 
 ## Configuration Contract
 
-### Required Schema Structure
+### Configuration Structure
 
-All language implementations MUST support this exact multi-file YAML schema structure:
+All Brickend projects MUST use the `brickend/` folder for configuration with progressive complexity:
 
-#### `brickend/architecture.yaml` - Base Configuration (REQUIRED)
+```
+project-root/
+├── brickend/
+│   ├── brickend.yaml       # Main configuration (ALWAYS REQUIRED)
+│   ├── security.yaml       # Security & auth (optional)
+│   ├── api.yaml            # API standards (optional)
+│   ├── environments/       # Environment configs (optional)
+│   │   ├── development.yaml
+│   │   ├── staging.yaml
+│   │   └── production.yaml
+│   └── services/           # Service modules (optional)
+│       ├── users.yaml
+│       ├── organizations.yaml
+│       └── [service].yaml
+└── [generated files...]
+```
+
+**Progressive Complexity Philosophy:**
+- **Simple projects**: Only `brickend/brickend.yaml` (everything inline)
+- **Medium projects**: `brickend.yaml` + optional `security.yaml` or `api.yaml`
+- **Complex projects**: Full modular structure with services and environments
+
+### Schema Structure Options
+
+#### Option 1: Standalone Configuration (Simple Projects)
+
+**Single File** (`brickend/brickend.yaml`):
 
 ```yaml
 # Project definition - REQUIRED
@@ -135,174 +160,37 @@ project:
   version: string           # OPTIONAL: Semantic version
   description: string       # OPTIONAL: Project description
 
-# Global environment variables - REQUIRED
-environment:
-  variables:                # REQUIRED: Environment configuration
-    [VAR_NAME]: string      # Environment variable references
+# Database configuration - REQUIRED
+database:
+  type: enum                # REQUIRED: postgresql|mysql|sqlite
+  host: string              # OPTIONAL: Default localhost  
+  port: integer             # OPTIONAL: Default per DB type
+  name: string              # REQUIRED: Database name
+  
+# Model definitions - REQUIRED
+models:
+  [ModelName]:              # REQUIRED: At least one model
+    fields:
+      [field_name]: string  # REQUIRED: Field definition string
 
-# Platform services - REQUIRED
-services:
-  database:                 # REQUIRED: Database configuration
-    provider: enum          # REQUIRED: supabase|postgresql|mysql|sqlite
-    config: string          # OPTIONAL: Path to service config file
-  hosting:                  # OPTIONAL: Hosting configuration
-    provider: enum          # vercel|netlify|aws|gcp
-    functions: enum         # edge|nodejs|deno
-  auth:                     # OPTIONAL: Authentication service
-    provider: enum          # supabase-auth|auth0|custom
-    config_file: string     # REQUIRED: Path to security.yaml
-
-# Global libraries - OPTIONAL
-libraries:
-  global: string[]          # Global dependencies
-  runtime: string[]         # Runtime requirements
-
-# API configuration reference - OPTIONAL
-api:
-  config_file: string       # REQUIRED: Path to api.yaml
-
-# Service module definitions - REQUIRED
-service_modules:            # REQUIRED: At least one service
-  - name: string            # REQUIRED: Service identifier
-    description: string     # OPTIONAL: Service description
-    file: string            # REQUIRED: Path to service YAML file
-    libraries: string[]     # OPTIONAL: Service-specific dependencies
-```
-
-#### `brickend/security.yaml` - Security Configuration (OPTIONAL)
-
-```yaml
-# Authentication providers - OPTIONAL
-authentication:
-  providers:
-    - name: string          # REQUIRED: Provider identifier
-      type: enum            # REQUIRED: jwt|api_key|oauth|custom
-      settings:             # REQUIRED: Provider-specific settings
-        [setting]: any
-
-# Authorization and permissions - OPTIONAL
-authorization:
-  roles:                    # OPTIONAL: Role definitions
-    - name: string          # REQUIRED: Role name
-      description: string   # OPTIONAL: Role description
-      permissions: string[] # REQUIRED: Permission list
-
-# Row Level Security policies - OPTIONAL
-rls_policies:
-  [table_name]:             # Table-specific policies
-    - name: string          # REQUIRED: Policy name
-      policy: string        # REQUIRED: Policy expression
-      operations: string[]  # REQUIRED: Operations covered
-
-# Access restrictions - OPTIONAL
-restrictions:
-  rate_limiting:            # OPTIONAL: Rate limiting configuration
-    default: integer        # Default rate limit
-    by_role:                # Role-specific limits
-      [role]: integer
-  ip_whitelist:             # OPTIONAL: IP restrictions
-    enabled: boolean
-    allowed_ips: string[]
-  cors:                     # OPTIONAL: CORS configuration
-    enabled: boolean
-    origins: string[]
-    methods: string[]
-    headers: string[]
-```
-
-#### `brickend/api.yaml` - API Configuration (OPTIONAL)
-
-```yaml
-# Global API settings - OPTIONAL
-global:
-  version: string           # API version
-  base_path: string         # Base URL path
-  default_response_format: enum # json|xml|yaml
-
-# Shared pagination - OPTIONAL
-pagination:
-  default_page_size: integer
-  max_page_size: integer
-  page_param: string
-  limit_param: string
-  include_metadata: boolean
-  metadata_fields: string[]
-
-# Standard headers - OPTIONAL
-headers:
-  request:                  # Request headers configuration
-    required: array         # Required headers
-    optional: array         # Optional headers
-  response:                 # Response headers configuration
-    standard: array         # Standard response headers
-
-# Error handling - OPTIONAL
-error_handling:
-  include_stack_trace: boolean
-  error_codes:              # Standard error code mapping
-    [error_type]: string
-
-# Validation settings - OPTIONAL
-validation:
-  strict_mode: boolean
-  strip_unknown_fields: boolean
-  coerce_types: boolean
-
-# Caching configuration - OPTIONAL
-caching:
-  default_ttl: integer
-  vary_by: string[]
-  cache_control:
-    [endpoint_type]: string
-
-# Monitoring configuration - OPTIONAL
-monitoring:
-  request_logging: boolean
-  response_logging: boolean
-  metrics: string[]
-  tracing:
-    enabled: boolean
-    sample_rate: float
-```
-
-#### `brickend/[service-name].yaml` - Service Configuration (REQUIRED)
-
-```yaml
-# Service definition - REQUIRED
-service:
-  name: string              # REQUIRED: Service identifier
-  description: string       # OPTIONAL: Service description
-
-# Configuration inheritance - OPTIONAL
-extends:
-  security: string          # OPTIONAL: Path to security.yaml
-  api: string              # OPTIONAL: Path to api.yaml
-
-# Data models - OPTIONAL
-tables:
-  - name: string            # REQUIRED: Table name
-    description: string     # OPTIONAL: Table description
-    fields:                 # REQUIRED: Field definitions
-      - name: string        # REQUIRED: Field name
-        type: string        # REQUIRED: Field type and constraints
-        description: string # OPTIONAL: Field description
-
-# API endpoints - OPTIONAL
-methods:
-  - name: string            # REQUIRED: Method name
-    description: string     # OPTIONAL: Method description
-    type: enum              # REQUIRED: get|post|put|delete|patch
-    path_params: array      # OPTIONAL: URL path parameters
-    query_params: array     # OPTIONAL: Query string parameters
-    input: array            # OPTIONAL: Request body schema
-    output: array           # OPTIONAL: Response body schema
-    headers: array          # OPTIONAL: Method-specific headers
-
-# Modules and contracts - OPTIONAL
-modules:
-  contracts: boolean        # Generate type contracts
-  rls: boolean             # Enable row-level security
-  validation: boolean      # Enable input validation
+# API configuration - REQUIRED  
+apis:
+  config:                   # OPTIONAL: Global API settings
+    host: string            # OPTIONAL: Default 127.0.0.1
+    port: integer           # OPTIONAL: Default 8000
+    cors:                   # OPTIONAL: CORS configuration
+      enabled: boolean
+      origins: string[]
+    auth:                   # OPTIONAL: Authentication
+      enabled: boolean
+      type: enum            # jwt|api_key|bearer_token
+      secret_key: string    # REQUIRED if auth.enabled
+      
+  endpoints:                # REQUIRED: At least one endpoint
+    - name: string          # REQUIRED: Endpoint identifier  
+      model: string         # REQUIRED: Reference to model
+      type: enum            # REQUIRED: crud|custom
+      auth_required: boolean # OPTIONAL: Default false
 ```
 
 ### Field Definition Language
@@ -596,6 +484,10 @@ brickend validate --security    # Validate security.yaml configuration
 brickend validate --api         # Validate api.yaml configuration
 brickend validate --verbose     # Show detailed validation results
 
+# Modularization helpers (optional)
+brickend split                  # Convert standalone config to modular structure
+brickend merge                  # Convert modular config back to standalone
+
 # Utilities
 brickend version               # Show version information
 brickend help                  # Show help information
@@ -657,11 +549,10 @@ test_config: |
       fields:
         id: "uuid, primary_key"
         email: "string, unique, required"
-  apis:
-    endpoints:
-      - name: "users"
-        model: "User" 
-        type: "crud"
+  endpoints:
+    - name: "users"
+      model: "User" 
+      type: "crud"
 
 # Expected behaviors that MUST be identical across all languages
 expected_behaviors:
@@ -758,4 +649,5 @@ The goal is simple: write configuration once, deploy anywhere.
 ---
 
 **Document Version**: 1.0  
-**Last Updated**: [06/09/2025]
+**Last Updated**: September 26, 2025  
+**Next Review**: Quarterly
